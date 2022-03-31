@@ -25,7 +25,7 @@ object DemoLineage {
     var sourceDS = spark.read
       .option("header", "true")
       .option("inferSchema", "true")
-      .csv("file:///Users/avnish/src/Lineage/data/input/batch/wikidata.csv")
+      .csv("file:///Users/avnish/src/Lineage/data/input/batch/wikidata1.csv")
       .as("source")
     sourceDS = sourceDS
       .filter(sourceDS.col("total_response_size") > 1000)
@@ -46,6 +46,10 @@ object DemoLineage {
           domainMappingDS.col("d_code"))
 
     joinedDS.write.mode(SaveMode.Overwrite).csv("file:///Users/avnish/src/Lineage/data/output/batch/job1_results")
+
+    joinedDS.select("count").write.mode(SaveMode.Overwrite).csv("file:///Users/avnish/src/Lineage/data/output/batch/j_results")
+
+
   }
 }
 
