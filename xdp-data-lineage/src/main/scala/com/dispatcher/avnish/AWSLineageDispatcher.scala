@@ -36,6 +36,9 @@ import org.apache.hadoop.fs.FSDataInputStream
 import java.io.{BufferedInputStream, FileInputStream}
 import java.net.URI
 import scala.concurrent.blocking
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import scala.collection.mutable.ListBuffer
 
 /**
  * A port of https://github.com/AbsaOSS/spline/tree/release/0.3.9/persistence/hdfs/src/main/scala/za/co/absa/spline/persistence/hdfs
@@ -63,20 +66,37 @@ class AWSLineageDispatcher(filename: String, permission: FsPermission, bufferSiz
 
   override def send(plan: ExecutionPlan): Unit = {
 
+    val today = Calendar.getInstance().getTime()
+    val runDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S")
+    val timestampFormat = new SimpleDateFormat("yyyyMMdd")
+
     val planWithJobName = Map(
       "lineage" -> plan,
       "application" -> programName,
-      "applicationId" -> SparkContext.getOrCreate().applicationId
+      "applicationId" -> SparkContext.getOrCreate().applicationId,
+      "timestamp" ->  timestampFormat.format(today),
+      "runDate" -> runDateFormat.format(today)
     )
-    persistToHadoopFs(planWithJobName.toJson, this.filename)
+    val listOfPlans = List(planWithJobName)
+    persistToHadoopFs(planWithJobName, listOfPlans.toJson, this.filename)
   }
 
   override def send(event: ExecutionEvent): Unit = {
 
   }
 
+  private def appendLineage(jsonStr:String, plan: Map[String, Any]): String = {
+    import HarvesterJsonSerDe.impl._
 
-  private def persistToHadoopFs(content: String, fullLineagePath: String): Unit = blocking {
+    val extractedList :List[Map[String, Any]] = jsonStr.fromJson[List[Map[String, Any]]]
+    var finalList= new ListBuffer[Map[String, Any]]()
+    finalList.appendAll(extractedList)
+    finalList += plan
+    finalList.toJson
+  }
+
+
+  private def persistToHadoopFs(plan: Map[String, Any], content: String, fullLineagePath: String): Unit = blocking {
     val (fs, path) = pathStringToFsWithPath(fullLineagePath)
     logDebug(s"Opening HadoopFs output stream to $path")
     val defaultFilePermission = new FsPermission("777")
@@ -85,21 +105,25 @@ class AWSLineageDispatcher(filename: String, permission: FsPermission, bufferSiz
     val blockSize = fs.getDefaultBlockSize(path)
 
 
-    if (fs.exists(path)) {
-      val (fsNew, pathNew) = pathStringToFsWithPath(fullLineagePath+"_1")
+    if (fs.exists(path) && fs.isFile(path)) {
+      val (fsNew, pathNew) = pathStringToFsWithPath(fullLineagePath+"_tmp")
       val inputStream = fs.open(path)
       val outputStream = fsNew.create(pathNew, defaultFilePermission, true, bufferSize, replication, blockSize, null)
       val umask = FsPermission.getUMask(fs.getConf)
       FsPermission.getFileDefault.applyUMask(umask)
-      IOUtils.copyBytes(inputStream, outputStream, bufferSize)
-
+      val jsonStr = scala.io.Source.fromInputStream(inputStream).mkString
+      val finalStr = appendLineage(jsonStr, plan)
+//      IOUtils.copyBytes(inputStream, outputStream, bufferSize)
       logDebug(s"Writing lineage to $pathNew")
       using(outputStream) {
-        _.write(content.getBytes("UTF-8"))
+        _.write(finalStr.getBytes("UTF-8"))
       }
       inputStream.close()
-      fs.rename(pathNew, path)
+      outputStream.close()
 
+      fs.delete(path, true)
+      fs.rename(pathNew, path)
+      fs.delete(pathNew, true)
     } else {
       val outputStream = fs.create(path, defaultFilePermission, true, bufferSize, replication, blockSize, null)
       val umask = FsPermission.getUMask(fs.getConf)
@@ -135,8 +159,6 @@ object AWSLineageDispatcher {
    * @return FS + relative path
    **/
   def pathStringToFsWithPath(pathString: String): (FileSystem, Path) = {
-
-    SparkContext.getOrCreate.getConf.getAll.foreach(x => println(x))
 
     pathString.toSimpleS3Location match {
       case Some(s3Location) =>
