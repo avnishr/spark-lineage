@@ -16,7 +16,7 @@
 
 package com.dispatcher.avnish
 
-import com.dispatcher.avnish.AWSLineageDispatcher.{BufferSizeKey, DefaultBufferSize, DefaultFilePermission, FileNameKey, FilePermissionsKey, ProgramName, pathStringToFsWithPath}
+import com.dispatcher.avnish.AWSLineageDispatcher.{BufferSizeKey, DefaultBufferSize, DefaultFilePermission, FilePermissionsKey, FolderNameKey, ProgramName, pathStringToFsWithPath}
 import org.apache.commons.configuration.Configuration
 import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Path}
 import org.apache.hadoop.fs.permission.FsPermission
@@ -33,6 +33,7 @@ import za.co.absa.spline.harvester.json.HarvesterJsonSerDe.impl._
 import za.co.absa.commons.s3.SimpleS3Location.SimpleS3LocationExt
 import org.apache.hadoop.fs.FSDataInputStream
 
+import java.io.File
 import java.io.{BufferedInputStream, FileInputStream}
 import java.net.URI
 import scala.concurrent.blocking
@@ -50,12 +51,12 @@ import scala.collection.mutable.ListBuffer
  * It is NOT thread-safe, strictly synchronous assuming a predefined order of method calls: `send(plan)` and then `send(event)`
  */
 @Experimental
-class AWSLineageDispatcher(filename: String, permission: FsPermission, bufferSize: Int, programName: String)
+class AWSLineageDispatcher(folderName: String, permission: FsPermission, bufferSize: Int, programName: String)
   extends LineageDispatcher
     with Logging {
 
   def this(conf: Configuration) = this(
-    filename = conf.getRequiredString(FileNameKey),
+    folderName = conf.getRequiredString(FolderNameKey) ,
     permission = new FsPermission(conf.getOptionalString(FilePermissionsKey).getOrElse(DefaultFilePermission.toShort.toString)),
     bufferSize = DefaultBufferSize,
     programName = conf.getOptionalString(ProgramName).getOrElse(SparkContext.getOrCreate().appName)
@@ -64,11 +65,23 @@ class AWSLineageDispatcher(filename: String, permission: FsPermission, bufferSiz
   @volatile
   private var _lastSeenPlan: ExecutionPlan = _
 
+  def getFileName(folderName: String): String = {
+
+    val today = Calendar.getInstance().getTime()
+    val timestampFormat = new SimpleDateFormat("yyyy_MM_dd_HH_mm_ss")
+    val appName = SparkContext.getOrCreate().appName.filterNot(_ == ' ')
+    if(folderName.endsWith(File.separator)){
+      folderName + appName + "_" + SparkContext.getOrCreate().applicationId + "_" + timestampFormat.format(today) + ".log"
+    } else {
+      folderName + File.pathSeparator + appName + "_"  + SparkContext.getOrCreate().applicationId + "_" + timestampFormat.format(today) + ".log"
+    }
+
+  }
   override def send(plan: ExecutionPlan): Unit = {
 
     val today = Calendar.getInstance().getTime()
-    val runDateFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S")
-    val timestampFormat = new SimpleDateFormat("yyyyMMdd")
+    val timestampFormat = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss.S")
+    val runDateFormat = new SimpleDateFormat("yyyyMMdd")
 
     val planWithJobName = Map(
       "lineage" -> plan,
@@ -78,7 +91,8 @@ class AWSLineageDispatcher(filename: String, permission: FsPermission, bufferSiz
       "runDate" -> runDateFormat.format(today)
     )
     val listOfPlans = List(planWithJobName)
-    persistToHadoopFs(planWithJobName, listOfPlans.toJson, this.filename)
+
+    persistToHadoopFs(planWithJobName, listOfPlans.toJson, getFileName(this.folderName))
   }
 
   override def send(event: ExecutionEvent): Unit = {
@@ -141,7 +155,7 @@ class AWSLineageDispatcher(filename: String, permission: FsPermission, bufferSiz
 object AWSLineageDispatcher {
   private val HadoopConfiguration = SparkContext.getOrCreate().hadoopConfiguration
 
-  private val FileNameKey = "fileName"
+  private val FolderNameKey = "folderName"
   private val FilePermissionsKey = "filePermissions"
   private val BufferSizeKey = "fileBufferSize"
   private val ProgramName = "application"
