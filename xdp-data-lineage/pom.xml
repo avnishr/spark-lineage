@@ -4,7 +4,7 @@
 
     <groupId>com.natwest.data.lineage</groupId>
     <artifactId>xdp</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <version>1.0.0-SNAPSHOT</version>
     <name>XDP Data Lineage</name>
     <packaging>jar</packaging>
 

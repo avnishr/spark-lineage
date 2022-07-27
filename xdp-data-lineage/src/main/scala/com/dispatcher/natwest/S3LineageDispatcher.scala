@@ -1,9 +1,9 @@
-package com.dispatcher.avnish
+package com.dispatcher.natwest
 
-import com.dispatcher.avnish.S3LineageDispatcher._
+import com.dispatcher.natwest.S3LineageDispatcher._
 import org.apache.commons.configuration.Configuration
 import org.apache.hadoop.fs.permission.FsPermission
-import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Path}
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.SparkContext
 import org.apache.spark.internal.Logging
 import za.co.absa.commons.config.ConfigurationImplicits.{ConfigurationOptionalWrapper, ConfigurationRequiredWrapper}
@@ -11,13 +11,10 @@ import za.co.absa.commons.lang.ARM.using
 import za.co.absa.commons.s3.SimpleS3Location.SimpleS3LocationExt
 import za.co.absa.spline.harvester.dispatcher.HDFSLineageDispatcher.pathStringToFsWithPath
 import za.co.absa.spline.harvester.dispatcher.LineageDispatcher
-import za.co.absa.spline.producer.model.v1_1.{AttrOrExprRef, ExecutionEvent, ExecutionPlan, FunctionalExpression}
-import za.co.absa.spline.harvester.dispatcher.httpdispatcher.modelmapper._
-import za.co.absa.spline.harvester.json.HarvesterJsonSerDe
+import za.co.absa.spline.harvester.json.HarvesterJsonSerDe.impl._
+import za.co.absa.spline.producer.model.v1_1.{ExecutionEvent, ExecutionPlan}
 
 import java.net.URI
-import scala.collection.mutable
-import scala.collection.mutable.{ArrayBuffer, HashMap, ListBuffer}
 import scala.concurrent.blocking
 
 class S3LineageDispatcher(filename: String, permission: FsPermission, bufferSize: Int)
@@ -36,6 +33,7 @@ class S3LineageDispatcher(filename: String, permission: FsPermission, bufferSize
 
   override def send(plan: ExecutionPlan): Unit = {
     this._lastSeenPlan = plan
+    this.persistToHadoopFs(plan.toJson, this.filename)
   }
 
   override def send(event: ExecutionEvent): Unit = {
@@ -49,8 +47,6 @@ class S3LineageDispatcher(filename: String, permission: FsPermission, bufferSize
         "executionPlan" -> this._lastSeenPlan,
         "executionEvent" -> event
       )
-
-      import HarvesterJsonSerDe.impl._
       persistToHadoopFs(planWithEvent.toJson, path)
     } finally {
       this._lastSeenPlan = null
@@ -63,11 +59,7 @@ class S3LineageDispatcher(filename: String, permission: FsPermission, bufferSize
 
     val replication = fs.getDefaultReplication(path)
     val blockSize = fs.getDefaultBlockSize(path)
-    var outputStream:FSDataOutputStream = null
-    if (fs.exists(path))
-      outputStream = fs.append(path)
-    else
-     outputStream = fs.create(path, permission, true, bufferSize, replication, blockSize, null)
+    var outputStream = fs.create(path, permission, true, bufferSize, replication, blockSize, null)
 
     val umask = FsPermission.getUMask(fs.getConf)
     FsPermission.getFileDefault.applyUMask(umask)

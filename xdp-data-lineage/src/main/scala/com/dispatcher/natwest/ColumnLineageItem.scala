@@ -1,4 +1,4 @@
-package com.dispatcher.avnish
+package com.dispatcher.natwest
 
 case class ColumnLineageItem (fromColName:String,
                               inputTableOrFile: Option[String],

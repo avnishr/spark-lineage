@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-package com.dispatcher.avnish
+package com.dispatcher.natwest
 
-import com.dispatcher.avnish.AWSLineageDispatcher.{BufferSizeKey, DefaultBufferSize, DefaultFilePermission, FilePermissionsKey, FolderNameKey, ProgramName, pathStringToFsWithPath}
+import com.dispatcher.natwest.AWSLineageDispatcher.{BufferSizeKey, DefaultBufferSize, DefaultFilePermission, FilePermissionsKey, FolderNameKey, ProgramName, pathStringToFsWithPath}
 import org.apache.commons.configuration.Configuration
 import org.apache.hadoop.fs.{FSDataOutputStream, FileSystem, Path}
 import org.apache.hadoop.fs.permission.FsPermission
@@ -55,12 +55,16 @@ class AWSLineageDispatcher(folderName: String, permission: FsPermission, bufferS
   extends LineageDispatcher
     with Logging {
 
-  def this(conf: Configuration) = this(
-    folderName = conf.getRequiredString(FolderNameKey) ,
-    permission = new FsPermission(conf.getOptionalString(FilePermissionsKey).getOrElse(DefaultFilePermission.toShort.toString)),
-    bufferSize = DefaultBufferSize,
-    programName = conf.getOptionalString(ProgramName).getOrElse(SparkContext.getOrCreate().appName)
-  )
+
+  def this(conf: Configuration) = {
+    this (
+      folderName = conf.getRequiredString(FolderNameKey) ,
+      permission = new FsPermission(conf.getOptionalString(FilePermissionsKey).getOrElse(DefaultFilePermission.toShort.toString)),
+      bufferSize = DefaultBufferSize,
+      programName = conf.getOptionalString(ProgramName).getOrElse(SparkContext.getOrCreate().appName)
+    )
+    SparkContext.getOrCreate().getConf.set("spark.sql.queryExecutionListeners", "za.co.absa.spline.harvester.listener.SplineQueryExecutionListener")
+  }
 
   @volatile
   private var _lastSeenPlan: ExecutionPlan = _
@@ -71,9 +75,9 @@ class AWSLineageDispatcher(folderName: String, permission: FsPermission, bufferS
     val timestampFormat = new SimpleDateFormat("yyyy_MM_dd_HH_mm_ss")
     val appName = SparkContext.getOrCreate().appName.filterNot(_ == ' ')
     if(folderName.endsWith(File.separator)){
-      folderName + appName + "_" + SparkContext.getOrCreate().applicationId + "_" + timestampFormat.format(today) + ".log"
+      folderName + appName + "_" + SparkContext.getOrCreate().applicationId + "_" + timestampFormat.format(today) + ".json"
     } else {
-      folderName + File.pathSeparator + appName + "_"  + SparkContext.getOrCreate().applicationId + "_" + timestampFormat.format(today) + ".log"
+      folderName + File.pathSeparator + appName + "_"  + SparkContext.getOrCreate().applicationId + "_" + timestampFormat.format(today) + ".json"
     }
 
   }
