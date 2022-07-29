@@ -57,11 +57,11 @@ class AWSLineageDispatcher(folderName: String, permission: FsPermission, bufferS
 
 
   def this(conf: Configuration) = {
-    this (
-      folderName = conf.getRequiredString(FolderNameKey) ,
+    this(
+      folderName = conf.getRequiredString(FolderNameKey),
       permission = new FsPermission(conf.getOptionalString(FilePermissionsKey).getOrElse(DefaultFilePermission.toShort.toString)),
       bufferSize = DefaultBufferSize,
-      programName = conf.getOptionalString(ProgramName).getOrElse(SparkContext.getOrCreate().appName)
+      programName = conf.getOptionalString(ProgramName).getOrElse(SparkContext.getOrCreate().applicationId)
     )
     SparkContext.getOrCreate().getConf.set("spark.sql.queryExecutionListeners", "za.co.absa.spline.harvester.listener.SplineQueryExecutionListener")
   }
@@ -72,15 +72,15 @@ class AWSLineageDispatcher(folderName: String, permission: FsPermission, bufferS
   def getFileName(folderName: String): String = {
 
     val today = Calendar.getInstance().getTime()
-    val timestampFormat = new SimpleDateFormat("yyyy_MM_dd_HH_mm_ss")
+    val timestampFormat = new SimpleDateFormat("yyyy_MM_dd_HH_mm_ss_SSS")
     val appName = SparkContext.getOrCreate().appName.filterNot(_ == ' ')
-    if(folderName.endsWith(File.separator)){
+    if (folderName.endsWith(File.separator)) {
       folderName + appName + "_" + SparkContext.getOrCreate().applicationId + "_" + timestampFormat.format(today) + ".json"
     } else {
-      folderName + File.pathSeparator + appName + "_"  + SparkContext.getOrCreate().applicationId + "_" + timestampFormat.format(today) + ".json"
+      folderName + File.pathSeparator + appName + "_" + SparkContext.getOrCreate().applicationId + "_" + timestampFormat.format(today) + ".json"
     }
-
   }
+
   override def send(plan: ExecutionPlan): Unit = {
 
     val today = Calendar.getInstance().getTime()
@@ -91,7 +91,7 @@ class AWSLineageDispatcher(folderName: String, permission: FsPermission, bufferS
       "lineage" -> plan,
       "application" -> programName,
       "applicationId" -> SparkContext.getOrCreate().applicationId,
-      "timestamp" ->  timestampFormat.format(today),
+      "timestamp" -> timestampFormat.format(today),
       "runDate" -> runDateFormat.format(today)
     )
     val listOfPlans = List(planWithJobName)
@@ -103,11 +103,11 @@ class AWSLineageDispatcher(folderName: String, permission: FsPermission, bufferS
 
   }
 
-  private def appendLineage(jsonStr:String, plan: Map[String, Any]): String = {
+  private def appendLineage(jsonStr: String, plan: Map[String, Any]): String = {
     import HarvesterJsonSerDe.impl._
 
-    val extractedList :List[Map[String, Any]] = jsonStr.fromJson[List[Map[String, Any]]]
-    var finalList= new ListBuffer[Map[String, Any]]()
+    val extractedList: List[Map[String, Any]] = jsonStr.fromJson[List[Map[String, Any]]]
+    var finalList = new ListBuffer[Map[String, Any]]()
     finalList.appendAll(extractedList)
     finalList += plan
     finalList.toJson
@@ -123,36 +123,14 @@ class AWSLineageDispatcher(folderName: String, permission: FsPermission, bufferS
     val blockSize = fs.getDefaultBlockSize(path)
 
 
-    if (fs.exists(path) && fs.isFile(path)) {
-      val (fsNew, pathNew) = pathStringToFsWithPath(fullLineagePath+"_tmp")
-      val inputStream = fs.open(path)
-      val outputStream = fsNew.create(pathNew, defaultFilePermission, true, bufferSize, replication, blockSize, null)
-      val umask = FsPermission.getUMask(fs.getConf)
-      FsPermission.getFileDefault.applyUMask(umask)
-      val jsonStr = scala.io.Source.fromInputStream(inputStream).mkString
-      val finalStr = appendLineage(jsonStr, plan)
-//      IOUtils.copyBytes(inputStream, outputStream, bufferSize)
-      logDebug(s"Writing lineage to $pathNew")
-      using(outputStream) {
-        _.write(finalStr.getBytes("UTF-8"))
-      }
-      inputStream.close()
-      outputStream.close()
+    val outputStream = fs.create(path, defaultFilePermission, true, bufferSize, replication, blockSize, null)
+    val umask = FsPermission.getUMask(fs.getConf)
+    FsPermission.getFileDefault.applyUMask(umask)
 
-      fs.delete(path, true)
-      fs.rename(pathNew, path)
-      fs.delete(pathNew, true)
-    } else {
-      val outputStream = fs.create(path, defaultFilePermission, true, bufferSize, replication, blockSize, null)
-      val umask = FsPermission.getUMask(fs.getConf)
-      FsPermission.getFileDefault.applyUMask(umask)
-
-      logDebug(s"Writing lineage to $path")
-      using(outputStream) {
-        _.write(content.getBytes("UTF-8"))
-      }
+    logDebug(s"Writing lineage to $path")
+    using(outputStream) {
+      _.write(content.getBytes("UTF-8"))
     }
-
   }
 }
 
@@ -175,7 +153,7 @@ object AWSLineageDispatcher {
    *
    * @param pathString path to convert to FS and relative path
    * @return FS + relative path
-   **/
+   * */
   def pathStringToFsWithPath(pathString: String): (FileSystem, Path) = {
 
     pathString.toSimpleS3Location match {
